@@ -7,4 +7,5 @@ venv/
 !.env.example
 .coverage
 .pytest_cache/
+.opencode-runtime/
 .DS_Store

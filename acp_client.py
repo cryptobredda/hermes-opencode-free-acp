@@ -1,6 +1,6 @@
 """Small ACP v1 stdio client, independent of Hermes's private implementation.
 
-The only executable is the operator-selected OpenCode CLI. All requested host
+The operator selects the OpenCode CLI (or its Windows batch launcher). All host
 work is returned as remote tool calls; this module never executes model tools.
 """
 from contextlib import contextmanager
@@ -8,14 +8,14 @@ import json
 import math
 import os
 import queue
-import signal
 import subprocess
 import threading
 import time
 from types import SimpleNamespace
 import uuid
 
-from .constants import DEFAULT_MODEL, FREE_MODELS, WORKSPACE, opencode_command
+from .constants import DEFAULT_MODEL, FREE_MODELS, VERSION, WORKSPACE, opencode_command
+from .launcher import ProcessTree
 
 BRIDGE_MODE = "build"
 MAX_FRAME = 4 * 1024 * 1024
@@ -37,7 +37,8 @@ CONTRACT = (
 # settings from the parent are inherited. The CLI owns its normal login in HOME.
 CHILD_ENV_NAMES = frozenset({
     "PATH", "HOME", "USER", "LOGNAME", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
-    "SYSTEMROOT", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "TMPDIR", "TEMP", "TMP",
+    "SYSTEMROOT", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "HOMEDRIVE", "HOMEPATH",
+    "TMPDIR", "TEMP", "TMP",
     "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR",
     "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TZ", "TERM",
     "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE",
@@ -194,23 +195,13 @@ class OpenCodeFreeClient:
         self._lock = threading.Lock()
         self._processes = set()
 
-    @staticmethod
-    def _signal(proc, force=False):
-        try:
-            if os.name == "posix":
-                os.killpg(proc.pid, signal.SIGKILL if force else signal.SIGTERM)
-            elif proc.poll() is None:
-                proc.kill() if force else proc.terminate()
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
-
     def cancel(self):
         self._cancelled.set()
         self.is_closed = True
         with self._lock:
             processes = tuple(self._processes)
-        for proc in processes:
-            self._signal(proc)  # no waiting or closing another thread's descriptors
+        for owner in processes:
+            owner.stop()  # no waiting or closing another thread's descriptors
 
     def close(self):
         self.cancel()
@@ -220,15 +211,14 @@ class OpenCodeFreeClient:
         timeout_seconds = effective_timeout(timeout_seconds)
         if self._cancelled.is_set():
             raise RuntimeError("OpenCode ACP request was cancelled")
-        launch = {"start_new_session": True} if os.name == "posix" else {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
         try:
-            proc = subprocess.Popen([self.command, *self.args], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1,
-                                    cwd=self.workspace, env=child_environment(), **launch)
+            owner = ProcessTree(self.command, self.args, cwd=self.workspace, env=child_environment())
         except OSError as exc:
-            raise RuntimeError(f"Could not launch OpenCode ACP executable {self.command!r}") from exc
+            raise RuntimeError(f"Could not launch/contain OpenCode ACP executable {self.command!r}; "
+                               "check its installation or set HERMES_OPENCODE_ACP_COMMAND to its absolute path") from exc
+        proc = owner.proc
         with self._lock:
-            self._processes.add(proc)
+            self._processes.add(owner)
             self.is_closed = False
         inbox = queue.Queue()
         deadline = time.monotonic() + effective_timeout(timeout_seconds)
@@ -295,24 +285,25 @@ class OpenCodeFreeClient:
         try:
             request("initialize", {"protocolVersion": 1,
                     "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
-                    "clientInfo": {"name": "hermes-opencode-free-acp", "version": "0.3.0"}})
+                    "clientInfo": {"name": "hermes-opencode-free-acp", "version": VERSION}})
             session = request("session/new", {"cwd": self.workspace, "mcpServers": []})
             if not isinstance(session.get("sessionId"), str) or not session["sessionId"]:
                 raise RuntimeError("OpenCode ACP did not return a session ID")
             yield session, request
         finally:
-            self._signal(proc)
+            owner.stop()
+            owner.close()  # closing the Windows job also kills remaining descendants
             try:
                 proc.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                self._signal(proc, force=True)
+                owner.stop(force=True)
                 proc.wait(timeout=2)
             for reader in readers:
                 reader.join(timeout=1)
             for stream in (proc.stdin, proc.stdout, proc.stderr):
                 stream.close()
             with self._lock:
-                self._processes.discard(proc)
+                self._processes.discard(owner)
                 if not self._processes:
                     self.is_closed = True
 

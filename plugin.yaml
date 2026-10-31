@@ -1,7 +1,7 @@
 manifest_version: 1
 name: opencode-free-acp
 kind: model-provider
-version: 0.3.0
+version: 0.4.0
 requires_hermes: ">=0.22.2"
 description: Real OpenCode ACP inference with Hermes-owned tools and curated free models
 author: cryptobredda

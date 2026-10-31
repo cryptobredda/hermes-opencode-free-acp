@@ -1,4 +1,35 @@
-# Release verification — v0.3.0
+# Release verification
+
+## v0.4.0 — cross-platform update (local, pre-publication)
+
+Verified on **2026-10-31**. This section describes the current working tree, not a published commit or a completed new GitHub Actions run.
+
+### Actual local results
+
+- **Linux / Python 3.14.7:** `python -m unittest discover -s tests -q` collected **75 tests**, returned **OK**, and explicitly skipped the two Windows-only runtime tests.
+- **Windows CPython 3.11.9 x64 under Wine 11.20:** the same suite ran **75 tests**, returned **OK**, and skipped none. This executes the Windows code paths, real `cmd.exe` `.cmd`/`.bat` wrappers, Unicode/metacharacter paths, process creation suspended until job assignment, cancellation/timeout cleanup and a real child-process cleanup check. The unrelated control process remained alive. Wine is not a native Windows host; do not describe this as native-host verification.
+- **Real Linux OpenCode 2.1.2:** `python tests/smoke_cli.py` initialized ACP, created a session, discovered the seven curated free IDs, and confirmed Build plus a free-model selection. It returned `ok: true`, `bridge_version: "0.4.0"`, `inference_requested: false`.
+- **Real Windows OpenCode 2.1.2 x64 under Wine:** the identical smoke script negotiated the same selections using the official Windows executable. Its npm package's SHA-512 integrity was checked against registry metadata before execution. The probe used an isolated Windows vendor home/config/cache. It returned `ok: true`, `platform: "win32"`, `bridge_version: "0.4.0"`, `inference_requested: false`.
+- **Hermes validation and doctor:** validation returned `ok: true`, `warnings: []`, a safe scan and no core overrides; doctor passed runtime discovery/import/registration for version 0.4.0. Isolation remains `in_process`, `host_ready: false`, as documented.
+- **Diff/syntax checks:** `git diff --check` and `python -m compileall -q .` passed.
+
+An intermediate README sentence caused a negation-related `context_exfil` false positive. It was clarified with the exact protocol boundary (`session/prompt` is never called by the smoke script); no scanner or runtime permission rule was disabled.
+
+No model inference was requested for these new platform checks. Offline responses are explicitly synthetic. The real CLI checks test actual executable launch, stdio, ACP and session configuration, not a fabricated model answer or live Hermes file-tool execution.
+
+### macOS and native-host CI
+
+The workflow now configures Linux/macOS/Windows Python 3.11/3.14 offline runs plus real, pinned OpenCode 2.1.2 CLI smoke checks on each OS. The smoke job installs the vendor CLI only in a job-local directory and tests npm's actual platform-specific launcher, without model inference or vendor credentials. These new remote jobs have **not run yet** for this uncommitted update. No native macOS or Windows live inference is claimed here.
+
+For historical context only, the published v0.3.0 [CI run 40243746587](https://github.com/cryptobredda/hermes-opencode-free-acp/actions/runs/40243746587) passed its offline matrix on all three OSes. That result must not be attributed to the new v0.4.0 code.
+
+### Catalog/publication status
+
+The original [catalog PR #144713](https://github.com/NousResearch/hermes-agent/pull/144713) merged on 2026-10-29. Its entry still pins v0.3.0 and lists only `linux`. Updating source code does not change that external platform gate. After author approval to commit/publish this release and after native CI passes, the catalog needs a separate update with the exact new commit SHA, version `0.4.0`, `platforms: [linux, macos, windows]` and accurate verification/known-issue disclosures. No commit, push or upstream catalog change was made during these local checks.
+
+---
+
+## v0.3.0 — historical published-release verification
 
 Performed on 2026-10-25 on Linux with Hermes `v0.22.2+1376.g18c525b`, OpenCode `v2.1.2`, Python `3.14.7`, and OpenAI SDK `2.24.0` in Hermes (the plugin itself does not import the SDK).
 

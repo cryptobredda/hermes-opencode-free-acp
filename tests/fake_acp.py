@@ -1,11 +1,22 @@
 """Synthetic ACP server for offline tests. Never calls a model or reads user data."""
+import io
 import json
+import subprocess
 import sys
 import time
+
+for stream in (sys.stdin, sys.stdout):
+    if isinstance(stream, io.TextIOWrapper):
+        stream.reconfigure(encoding="utf-8")
 
 SCENARIO = sys.argv[1] if len(sys.argv) > 1 else "normal"
 MODEL = "opencode/glm-5.3-flash-free"
 values = {"mode": "plan", "model": "openai/paid-test-only"}
+child = None
+if SCENARIO == "descendant":
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
 
 
 def send(message):
@@ -56,6 +67,11 @@ for line in sys.stdin:
                 else:
                     assert reply["error"]["code"] == -32601
         text = "FAKE_ACP_OK"
+        if SCENARIO == "descendant" and child is not None:
+            text = "FAKE_CHILD_PID:" + str(child.pid)
+        if SCENARIO == "unicode":
+            text = "ACP café — 雪 👋"
+            assert text in request["params"]["prompt"][0]["text"]
         if SCENARIO == "empty":
             text = ""
         if SCENARIO == "tool":

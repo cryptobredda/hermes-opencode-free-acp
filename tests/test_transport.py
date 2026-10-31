@@ -36,6 +36,11 @@ class ProtocolTests(unittest.TestCase):
         calls, _ = acp.parse_tool_calls(envelope(arguments=arguments), TOOLS)
         self.assertEqual(json.loads(calls[0].function.arguments), arguments)
 
+    def test_windows_tool_paths_are_preserved_literally(self):
+        arguments = {"path": r"C:\Users\Test User\café\letter.txt", "content": "雪\nnext line"}
+        calls, _ = acp.parse_tool_calls(envelope(arguments=arguments), TOOLS)
+        self.assertEqual(json.loads(calls[0].function.arguments), arguments)
+
     def test_non_tool_prose_is_untouched(self):
         self.assertEqual(acp.parse_tool_calls("ordinary answer", TOOLS), ([], "ordinary answer"))
 
@@ -154,7 +159,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertNotIn("build", config.get("agents", {}))
 
     def test_no_private_hermes_imports(self):
-        for path in (ROOT / "__init__.py", ROOT / "acp_client.py", ROOT / "constants.py"):
+        for path in ROOT.glob("*.py"):
             for node in ast.walk(ast.parse(path.read_text())):
                 if isinstance(node, ast.ImportFrom):
                     self.assertFalse((node.module or "").startswith(("agent.", "hermes_cli.")), (path.name, node.module))

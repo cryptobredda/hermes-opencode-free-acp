@@ -1,9 +1,9 @@
 """Non-secret release settings; no discovery, network, or filesystem writes."""
-import os
 from pathlib import Path
-import shutil
 
-VERSION = "0.3.0"
+from .launcher import resolve_opencode
+
+VERSION = "0.4.0"
 PROVIDER = "opencode-free-acp"
 DEFAULT_MODEL = "opencode/glm-5.3-flash-free"
 # Explicitly curated free IDs, never arbitrary strings ending in '-free'.
@@ -22,14 +22,4 @@ WORKSPACE = Path(__file__).resolve().parent / "workspace"
 
 def opencode_command():
     """Resolve an operator-owned executable, never a model-supplied command."""
-    override = os.environ.get("HERMES_OPENCODE_ACP_COMMAND", "").strip()
-    if override:
-        return override
-    found = shutil.which("opencode")
-    if found:
-        return found
-    for candidate in (Path.home() / ".bun/bin/opencode", Path.home() / ".opencode/bin/opencode",
-                      Path.home() / ".local/bin/opencode", Path("/opt/homebrew/bin/opencode")):
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return str(candidate)
-    return "opencode"
+    return resolve_opencode()

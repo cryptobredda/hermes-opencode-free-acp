@@ -11,3 +11,4 @@ package.__path__ = [str(ROOT)]
 sys.modules[NAME] = package
 client = importlib.import_module(NAME + ".acp_client")
 constants = importlib.import_module(NAME + ".constants")
+launcher = importlib.import_module(NAME + ".launcher")

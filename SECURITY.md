@@ -13,4 +13,6 @@ The intended boundaries are:
 - No private Hermes imports, runtime monkey-patches, self-updater or telemetry.
 - Cancellation and timeout clean up the plugin's own transport; unrelated user processes are not targeted.
 
+On Windows the plugin may use the OS `cmd.exe` solely to run an operator-selected `.cmd`/`.bat` OpenCode launcher. It quotes fixed arguments, disables AutoRun/delayed expansion and rejects unsafe expansion; it never passes model text to that shell. A suspended process is assigned to a private Windows Job Object before it runs. The job is used for descendant cleanup, not as an authorization or OS sandbox. No PowerShell execution-policy override, administrator elevation or third-party process-killer is used.
+
 Use the included offline tests to reproduce issues without exposing private model inputs. Consult README.md for data flow, subprocess/environment behavior, platform verification and known limits.
