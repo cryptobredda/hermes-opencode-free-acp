@@ -23,7 +23,7 @@ The catalog-listed [oc-free-provider](https://github.com/anpicasso/hermes-oc-fre
 
 Version **0.4.0** adds platform handling for **Linux, macOS and native Windows**. The plugin uses the same Python implementation on each platform; install a compatible OpenCode CLI for your OS/CPU. Windows under WSL is a Linux installation: install both Hermes and OpenCode inside WSL rather than mixing Linux Hermes with a Windows executable.
 
-Verification is documented separately from platform support: Linux has live model/tool verification; Windows Python and the real Windows CLI have also been exercised under Wine, not on a native Windows host. Native Windows/macOS CI is configured, but must pass for the new release before claiming those jobs succeeded. See [the verification report](docs/VERIFICATION.md).
+Native Linux, macOS and Windows CI passes the offline transport suite and real OpenCode CLI/ACP checks. Full live model/Hermes tool-loop verification remains Linux-only: the cross-platform CLI checks confirm launch, handshake and Build/free-model selection without inference. See [the verification report](docs/VERIFICATION.md) for exact runs and scope.
 
 ## Install
 

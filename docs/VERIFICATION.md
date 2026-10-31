@@ -1,8 +1,8 @@
 # Release verification
 
-## v0.4.0 — cross-platform update (local, pre-publication)
+## v0.4.0 — cross-platform release
 
-Verified on **2026-10-31**. This section describes the current working tree, not a published commit or a completed new GitHub Actions run.
+Verified on **2026-10-31**, including native GitHub Actions results for runtime commit `e0e1e03d99c8e8ebec17d7a468463bed04ec6fc5`. Only documentation was changed after that runtime verification.
 
 ### Actual local results
 
@@ -19,13 +19,21 @@ No model inference was requested for these new platform checks. Offline response
 
 ### macOS and native-host CI
 
-The workflow now configures Linux/macOS/Windows Python 3.11/3.14 offline runs plus real, pinned OpenCode 2.1.2 CLI smoke checks on each OS. The smoke job installs the vendor CLI only in a job-local directory and tests npm's actual platform-specific launcher, without model inference or vendor credentials. These new remote jobs have **not run yet** for this uncommitted update. No native macOS or Windows live inference is claimed here.
+Completed [GitHub Actions run 41155884768](https://github.com/cryptobredda/hermes-opencode-free-acp/actions/runs/41155884768) passed **all nine jobs** on the published runtime commit above:
+
+| Native runner | Python 3.11 suite | Python 3.14 suite | Real OpenCode 2.1.2 ACP/config check |
+| --- | --- | --- | --- |
+| Linux (`ubuntu-latest`) | OK; two Windows-only skips | OK; two Windows-only skips | OK; `platform: linux` |
+| macOS (`macos-latest`) | OK; two Windows-only skips | OK; two Windows-only skips | OK; `platform: darwin` |
+| Windows (`windows-latest`) | OK; no skips | OK; no skips | OK; `platform: win32` |
+
+Every offline job collected 75 tests. The Windows jobs exercised actual batch launchers and verified descendant cleanup while leaving an unrelated process alive. The real CLI jobs installed the pinned vendor package in job-local directories, confirmed Build/free-model selection and returned `inference_requested: false`. The Windows CLI job used npm's actual `.bin/opencode.cmd`; the POSIX npm symlinks resolved to the installed native executable. No native macOS or Windows live model inference or end-to-end Hermes file-tool execution is claimed here.
 
 For historical context only, the published v0.3.0 [CI run 40243746587](https://github.com/cryptobredda/hermes-opencode-free-acp/actions/runs/40243746587) passed its offline matrix on all three OSes. That result must not be attributed to the new v0.4.0 code.
 
 ### Catalog/publication status
 
-The original [catalog PR #144713](https://github.com/NousResearch/hermes-agent/pull/144713) merged on 2026-10-29. Its entry still pins v0.3.0 and lists only `linux`. Updating source code does not change that external platform gate. After author approval to commit/publish this release and after native CI passes, the catalog needs a separate update with the exact new commit SHA, version `0.4.0`, `platforms: [linux, macos, windows]` and accurate verification/known-issue disclosures. No commit, push or upstream catalog change was made during these local checks.
+The original [catalog PR #144713](https://github.com/NousResearch/hermes-agent/pull/144713) merged on 2026-10-29 with v0.3.0 scoped to Linux. Source publication does not change the external platform gate: an upstream SHA-bump PR must pin this release's exact commit, set version `0.4.0` and `platforms: [linux, macos, windows]`, and preserve accurate verification/known-issue disclosures. Catalog approval is separate from source publication and is not vendor access authorization.
 
 ---
 
