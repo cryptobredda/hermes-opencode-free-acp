@@ -14,7 +14,7 @@ import time
 from types import SimpleNamespace
 import uuid
 
-from .constants import DEFAULT_MODEL, FREE_MODELS, VERSION, WORKSPACE, opencode_command
+from .constants import DEFAULT_MODEL, FREE_MODELS, VERSION, WORKSPACE, is_free_model, opencode_command
 from .launcher import ProcessTree
 
 BRIDGE_MODE = "build"
@@ -63,7 +63,12 @@ class Record(SimpleNamespace):
 
 
 def child_environment():
-    return {key: value for key, value in os.environ.items() if key in CHILD_ENV_NAMES}
+    env = {key: value for key, value in os.environ.items() if key in CHILD_ENV_NAMES}
+    # Pin config lookup to the restricted workspace so unrelated user/global
+    # OpenCode MCP servers or tool config cannot leak into the bridge. Auth
+    # lives under XDG_DATA_HOME, so normal CLI login still works.
+    env["XDG_CONFIG_HOME"] = str(WORKSPACE / ".config")
+    return env
 
 
 def effective_timeout(value):
@@ -180,6 +185,21 @@ def parse_tool_calls(text, tools=None, tool_choice=None):
     return calls, "\n".join(part.strip() for part in prose if part.strip())
 
 
+def native_tool_correction(names):
+    """Follow-up prompt after OpenCode tried a policy-denied native tool."""
+    listed = ", ".join(names) or "unnamed"
+    example = (OPEN_TAG
+               + '{"id":"c1","type":"function","function":{"name":"<remote tool>","arguments":"{...}"}}'
+               + CLOSE_TAG)
+    return (
+        "Your previous turn attempted OpenCode-native tool(s): " + listed + ". "
+        "They are disabled in this workspace and were not executed. Do not use native tools, "
+        "shell, files, skills or subagents. If an action is needed, reply with ONLY a "
+        + example + " envelope naming a remote Hermes tool from the list. "
+        "Otherwise answer in plain text with no tool call."
+    )
+
+
 class OpenCodeFreeClient:
     HERMES_SKIP_TRANSPORT_WRAP = True
     HERMES_SKIP_ASYNC_WRAP = True
@@ -257,7 +277,7 @@ class OpenCodeFreeClient:
             proc.stdin.write(wire + "\n")
             proc.stdin.flush()
 
-        def request(method, params, *, text_parts=None, reasoning_parts=None):
+        def request(method, params, *, text_parts=None, reasoning_parts=None, native_tools=None):
             nonlocal sequence
             sequence += 1
             rid = sequence
@@ -272,7 +292,7 @@ class OpenCodeFreeClient:
                 if isinstance(message, BaseException):
                     raise RuntimeError(str(message)) from message
                 if isinstance(message.get("method"), str):
-                    self._server_message(message, send, text_parts, reasoning_parts)
+                    self._server_message(message, send, text_parts, reasoning_parts, native_tools)
                     continue
                 if message.get("id") != rid:
                     continue
@@ -308,13 +328,18 @@ class OpenCodeFreeClient:
                     self.is_closed = True
 
     @staticmethod
-    def _server_message(message, send, text_parts, reasoning_parts):
+    def _server_message(message, send, text_parts, reasoning_parts, native_tools=None):
         method = message["method"]
         if method == "session/update":
             update = (message.get("params") or {}).get("update") or {}
             kind = update.get("sessionUpdate")
             if kind in ("tool_call", "tool_call_update"):
-                raise RuntimeError("OpenCode attempted a native tool; this bridge only permits Hermes-dispatched tools")
+                if native_tools is None:
+                    raise RuntimeError("OpenCode attempted a native tool; this bridge only permits Hermes-dispatched tools")
+                label = update.get("title") or update.get("kind") or "unnamed"
+                if isinstance(label, str) and label not in native_tools:
+                    native_tools.append(label)
+                return
             sink = {"agent_message_chunk": text_parts, "agent_thought_chunk": reasoning_parts}.get(kind)
             content = update.get("content") or {}
             if sink is not None and isinstance(content, dict) and isinstance(content.get("text"), str):
@@ -331,11 +356,16 @@ class OpenCodeFreeClient:
 
     def list_models(self, *, timeout_seconds=15.0):
         with self._session(timeout_seconds) as (session, _):
-            offered = set(options(config_option(session, "model")))
-            return [model for model in FREE_MODELS if model in offered]
+            offered = options(config_option(session, "model"))
+            dynamic = [model for model in offered if is_free_model(model)]
+            # Keep curated order first for stability, then any newly discovered
+            # opencode free models advertised by the CLI.
+            ordered = [model for model in FREE_MODELS if model in dynamic]
+            ordered.extend(model for model in dynamic if model not in ordered)
+            return ordered
 
     def _run_prompt(self, prompt, *, model, timeout_seconds):
-        if model not in FREE_MODELS:
+        if not is_free_model(model):
             raise ValueError(f"OpenCode Free refuses an unapproved or paid model: {model!r}")
         with self._session(timeout_seconds) as (session, request):
             sid = session["sessionId"]
@@ -347,9 +377,20 @@ class OpenCodeFreeClient:
                 result = request("session/set_config_option", {"sessionId": sid, "configId": option["id"], "value": value})
                 if selected_value(result, option["id"]) != value:
                     raise RuntimeError(f"OpenCode did not confirm requested {option['id']}={value!r}; no prompt was sent")
-            text, reasoning = [], []
+            text, reasoning, natives = [], [], []
             request("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": prompt}]},
-                    text_parts=text, reasoning_parts=reasoning)
+                    text_parts=text, reasoning_parts=reasoning, native_tools=natives)
+            if natives and OPEN_TAG not in "".join(text):
+                # A policy-denied native call is an event, not an executed tool:
+                # let the turn finish and ask once for a compliant answer.
+                retry_text, retry_reasoning, again = [], [], []
+                request("session/prompt", {"sessionId": sid,
+                        "prompt": [{"type": "text", "text": native_tool_correction(natives)}]},
+                        text_parts=retry_text, reasoning_parts=retry_reasoning, native_tools=again)
+                if again:
+                    raise RuntimeError("OpenCode attempted a native tool; this bridge only permits Hermes-dispatched tools")
+                if "".join(retry_text).strip():
+                    text, reasoning = retry_text, retry_reasoning
             answer = "".join(text)
             if not answer.strip():
                 raise RuntimeError("OpenCode returned no assistant text; not treating this as success")

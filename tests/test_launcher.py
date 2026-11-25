@@ -199,8 +199,10 @@ class LaunchTests(unittest.TestCase):
                   "OPENAI_API_KEY": "SYNTHETIC_NOT_A_CREDENTIAL", "HERMES_YOLO_MODE": "1"}
         with patch.dict(os.environ, values, clear=True):
             actual = acp.child_environment()
-        self.assertEqual(actual, {key: value for key, value in values.items()
-                                  if key not in ("OPENAI_API_KEY", "HERMES_YOLO_MODE")})
+        expected = {key: value for key, value in values.items()
+                    if key not in ("OPENAI_API_KEY", "HERMES_YOLO_MODE")}
+        expected["XDG_CONFIG_HOME"] = str(constants.WORKSPACE / ".config")
+        self.assertEqual(actual, expected)
 
 
 class PortableStdioTests(unittest.TestCase):

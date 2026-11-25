@@ -11,7 +11,9 @@ for stream in (sys.stdin, sys.stdout):
 
 SCENARIO = sys.argv[1] if len(sys.argv) > 1 else "normal"
 MODEL = "opencode/glm-5.3-flash-free"
+DYNAMIC_FREE = "opencode/new-model-free"
 values = {"mode": "plan", "model": "openai/paid-test-only"}
+prompts = 0
 child = None
 if SCENARIO == "descendant":
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
@@ -24,11 +26,14 @@ def send(message):
 
 
 def config():
+    model_options = [{"value": MODEL}, {"value": "openai/paid-test-only"}]
+    if SCENARIO == "dynamic-model":
+        model_options.insert(1, {"value": DYNAMIC_FREE})
     return [
         {"id": "mode", "category": "mode", "currentValue": values["mode"],
          "options": [{"value": "plan"}] + ([] if SCENARIO == "missing-build" else [{"value": "build"}])},
         {"id": "model", "category": "model", "currentValue": values["model"],
-         "options": [{"value": MODEL}, {"value": "openai/paid-test-only"}]},
+         "options": model_options},
     ]
 
 
@@ -48,6 +53,7 @@ for line in sys.stdin:
             values[params["configId"]] = params["value"]
         result = {"configOptions": config()}
     elif method == "session/prompt":
+        prompts += 1
         if SCENARIO == "slow":
             time.sleep(30)
         if SCENARIO == "exit":
@@ -55,10 +61,16 @@ for line in sys.stdin:
         if SCENARIO == "rpc-error":
             send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "TEST_SENSITIVE_TEXT_MUST_NOT_BE_LOGGED"}})
             continue
-        if SCENARIO == "native-tool":
+        if SCENARIO in ("native-tool", "native-tool-twice") and prompts == 1:
             send({"jsonrpc": "2.0", "method": "session/update", "params": {"update": {"sessionUpdate": "tool_call", "title": "native read"}}})
-            continue
-        if SCENARIO == "denied-requests":
+            text = ""
+        elif SCENARIO == "native-tool":
+            assert "native read" in request["params"]["prompt"][0]["text"], "correction must name the blocked tool"
+            text = "FAKE_ACP_RECOVERED"
+        elif SCENARIO == "native-tool-twice":
+            send({"jsonrpc": "2.0", "method": "session/update", "params": {"update": {"sessionUpdate": "tool_call", "title": "native write"}}})
+            text = ""
+        elif SCENARIO == "denied-requests":
             for index, operation in enumerate(("session/request_permission", "fs/read_text_file", "fs/write_text_file", "terminal/create")):
                 send({"jsonrpc": "2.0", "id": "server-" + str(index), "method": operation, "params": {}})
                 reply = json.loads(sys.stdin.readline())
@@ -66,7 +78,9 @@ for line in sys.stdin:
                     assert reply["result"]["outcome"]["outcome"] == "cancelled"
                 else:
                     assert reply["error"]["code"] == -32601
-        text = "FAKE_ACP_OK"
+            text = "FAKE_ACP_OK"
+        else:
+            text = "FAKE_ACP_OK"
         if SCENARIO == "descendant" and child is not None:
             text = "FAKE_CHILD_PID:" + str(child.pid)
         if SCENARIO == "unicode":

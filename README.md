@@ -7,9 +7,9 @@ This is an unofficial community integration, not an OpenCode or Nous Research pr
 ## What is different?
 
 - The official installed `opencode acp` process makes model requests. The plugin does not imitate OpenCode HTTP headers or access its inference API directly.
-- OpenCode runs its normal **Build** agent in the included restricted workspace. Its native tools are denied by workspace policy; ACP file/terminal requests are rejected and permissions are cancelled. A reported native tool call aborts the request.
+- OpenCode runs its normal **Build** agent in the included restricted workspace. Its native tools are denied by workspace policy; ACP file/terminal requests are rejected and permissions are cancelled. A denied native tool call gets one corrective retry; repeated native tool calls abort the request.
 - Hermes tool schemas and replayed tool results travel as text. Explicit `<hermes_tool_call>` envelopes are parsed into structural OpenAI-style calls, which **Hermes** validates and executes. The plugin never executes tool commands itself.
-- Only a curated set of free-model IDs can be requested. Discovery intersects that set with the CLI's advertised catalog. Both agent and model selection must be confirmed before a prompt is sent; selection failure never continues on a possibly paid default.
+- Free-model discovery is dynamic but scoped: curated defaults plus any OpenCode-advertised model in the `opencode/` namespace with a clear free signal (`-free` suffix or `big-pickle`). Both agent and model selection must be confirmed before a prompt is sent; selection failure never continues on a possibly paid default.
 - The transport is **Python standard library only**, with no private Hermes imports, monkey-patches, HTTP listeners, telemetry, Node/npm dependency of its own, or self-updater. OpenCode itself remains a separately installed runtime dependency.
 
 The catalog-listed [oc-free-provider](https://github.com/anpicasso/hermes-oc-free-provider) takes a different, direct-HTTP approach. [opencode-hermes-acp](https://github.com/trojan-lord/opencode-hermes-acp) delegates actions to OpenCode's agent. This independent implementation instead combines actual CLI/ACP inference with Hermes-owned actions and a curated free-only selection policy.

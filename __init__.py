@@ -2,7 +2,7 @@
 from providers import register_provider
 from providers.base import ProviderProfile
 
-from .constants import DEFAULT_MODEL, FREE_MODELS, VERSION, opencode_command
+from .constants import CURATED_FREE_MODELS, DEFAULT_MODEL, FREE_MODELS, VERSION, is_free_model, opencode_command
 
 
 class OpenCodeFreeProfile(ProviderProfile):
@@ -18,21 +18,20 @@ class OpenCodeFreeProfile(ProviderProfile):
     def fetch_models(self, *, api_key=None, base_url=None, timeout=15.0):
         client = self.create_client()
         try:
-            offered = set(client.list_models(timeout_seconds=timeout))
-            return [model for model in FREE_MODELS if model in offered]
+            return client.list_models(timeout_seconds=timeout)
         except (OSError, RuntimeError, TimeoutError, ValueError):
             return None
         finally:
             client.close()
 
     def get_model_context_length(self, model):
-        return 131072 if model in FREE_MODELS else None
+        return 131072 if is_free_model(model) else None
 
 
 profile = OpenCodeFreeProfile(
     name="opencode-free-acp",
     display_name="OpenCode Free (ACP)",
-    description=f"Real OpenCode CLI, Hermes-owned tools, curated free models (bridge {VERSION})",
+    description=f"Real OpenCode CLI, Hermes-owned tools, dynamic free-model discovery (bridge {VERSION})",
     auth_type="external_process",
     api_mode="chat_completions",
     base_url="acp://opencode-free",
@@ -40,13 +39,13 @@ profile = OpenCodeFreeProfile(
     process_args=("acp",),
     process_command_env_vars=("HERMES_OPENCODE_ACP_COMMAND",),
     supports_health_check=False,
-    fallback_models=FREE_MODELS,
+    fallback_models=CURATED_FREE_MODELS,
     default_aux_model=DEFAULT_MODEL,
     model_capabilities={model: {
         "context_window": 131072,
         "supports_tools": True,
         "supports_vision": False,
         "supports_reasoning": False,
-    } for model in FREE_MODELS},
+    } for model in CURATED_FREE_MODELS},
 )
 register_provider(profile)

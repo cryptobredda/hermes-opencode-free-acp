@@ -25,6 +25,15 @@ def fake(scenario="normal"):
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_is_free_model_dynamic_policy(self):
+        self.assertTrue(constants.is_free_model("opencode/glm-5.3-flash-free"))
+        self.assertTrue(constants.is_free_model("opencode/some-new-model-free"))
+        self.assertTrue(constants.is_free_model("opencode/big-pickle"))
+        self.assertFalse(constants.is_free_model("opencode/paid-model"))
+        self.assertFalse(constants.is_free_model("openai/gpt-4o-mini"))
+        self.assertFalse(constants.is_free_model("anthropic/claude-free"))
+        self.assertFalse(constants.is_free_model(""))
+
     def test_tool_round_trip(self):
         calls, text = acp.parse_tool_calls(envelope(), TOOLS)
         self.assertEqual(text, "")
@@ -133,20 +142,26 @@ class ProtocolTests(unittest.TestCase):
     def test_child_environment_excludes_credentials_and_yolo(self):
         fixture = {"HOME": "/test-home", "PATH": "/test-path", "OPENAI_API_KEY": "NOT_A_REAL_TOKEN", "HERMES_YOLO_MODE": "1", "OPENCODE_CONFIG_CONTENT": "private test config"}
         with patch.dict(os.environ, fixture, clear=True):
-            self.assertEqual(acp.child_environment(), {"HOME": "/test-home", "PATH": "/test-path"})
+            self.assertEqual(acp.child_environment(), {"HOME": "/test-home", "PATH": "/test-path", "XDG_CONFIG_HOME": str(constants.WORKSPACE / ".config")})
 
     def test_workspace_is_fixed_not_caller_selected(self):
         item = acp.OpenCodeFreeClient(acp_cwd="/unrelated")
         self.assertEqual(item.workspace, str(constants.WORKSPACE))
         item.close()
 
-    def test_paid_or_unknown_free_model_fails_before_spawn(self):
-        for model in ("openai/paid-test-only", "opencode/invented-free"):
+    def test_paid_or_nonfree_model_fails_before_spawn(self):
+        for model in ("openai/paid-test-only", "opencode/paid-model", "anthropic/claude-free"):
             item = fake()
             with patch.object(item, "_session") as session, self.assertRaises(ValueError):
                 item.chat.completions.create(model=model, messages=[])
             session.assert_not_called()
             item.close()
+
+    def test_dynamic_opencode_free_model_must_still_be_advertised(self):
+        item = fake()
+        with self.assertRaisesRegex(RuntimeError, "was not advertised"):
+            item.chat.completions.create(model="opencode/unadvertised-free", messages=[{"role": "user", "content": "x"}], timeout=5)
+        item.close()
 
     def test_transport_build_is_not_a_bootstrap_variable(self):
         with patch.object(constants, "BRIDGE_MODE", "old-custom-agent", create=True):
@@ -184,6 +199,22 @@ class StdioTests(unittest.TestCase):
     def test_model_discovery_filters_paid_models(self):
         self.assertEqual(self.use().list_models(timeout_seconds=5), [constants.DEFAULT_MODEL])
 
+    def test_model_discovery_includes_dynamic_opencode_free_models(self):
+        models = self.use("dynamic-model").list_models(timeout_seconds=5)
+        self.assertIn(constants.DEFAULT_MODEL, models)
+        self.assertIn("opencode/new-model-free", models)
+        self.assertNotIn("openai/paid-test-only", models)
+
+    def test_dynamic_advertised_free_model_can_be_selected(self):
+        item = self.use("dynamic-model")
+        result = item.chat.completions.create(
+            model="opencode/new-model-free",
+            messages=[{"role": "user", "content": "synthetic offline test"}],
+            timeout=5,
+        )
+        self.assertEqual(result.model, "opencode/new-model-free")
+        self.assertEqual(result.choices[0].message.content, "FAKE_ACP_OK")
+
     def test_real_stdio_remote_tool_parsing(self):
         result = self.complete(self.use("tool"), tools=TOOLS)
         self.assertEqual(result.choices[0].finish_reason, "tool_calls")
@@ -205,9 +236,14 @@ class StdioTests(unittest.TestCase):
     def test_native_requests_are_denied(self):
         self.assertEqual(self.complete(self.use("denied-requests")).choices[0].message.content, "FAKE_ACP_OK")
 
-    def test_native_tool_notification_fails_closed(self):
+    def test_native_tool_notification_is_corrected_once(self):
+        result = self.complete(self.use("native-tool"))
+        self.assertEqual(result.choices[0].message.content, "FAKE_ACP_RECOVERED")
+        self.assertEqual(result.choices[0].finish_reason, "stop")
+
+    def test_repeated_native_tool_notification_still_fails_closed(self):
         with self.assertRaisesRegex(RuntimeError, "attempted a native tool"):
-            self.complete(self.use("native-tool"))
+            self.complete(self.use("native-tool-twice"))
 
     def test_empty_response_is_not_success(self):
         with self.assertRaisesRegex(RuntimeError, "no assistant text"):
