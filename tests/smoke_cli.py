@@ -26,10 +26,10 @@ def main():
     client = acp.OpenCodeFreeClient(command=command)
     try:
         with client._session(args.timeout) as (session, request):
-            advertised = set(acp.options(acp.config_option(session, "model")))
-            models = [model for model in constants.FREE_MODELS if model in advertised]
+            advertised = acp.options(acp.config_option(session, "model"))
+            models = [model for model in advertised if constants.is_free_model(model)]
             if not models:
-                raise RuntimeError("No curated free models were advertised; no inference was attempted")
+                raise RuntimeError("No OpenCode free models were advertised; no inference was attempted")
             mode = acp.config_option(session, "mode", acp.BRIDGE_MODE)
             model = acp.config_option(session, "model", models[0])
             for option, value in ((mode, acp.BRIDGE_MODE), (model, models[0])):
